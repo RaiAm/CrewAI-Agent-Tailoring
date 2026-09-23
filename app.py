@@ -13,9 +13,10 @@ init_db()
 
 st.set_page_config(page_title="In-House AI Resume Workspace", page_icon="👥", layout="wide")
 
-st.title("👥 Multi-Candidate AI Resume & Intelligence Workspace")
-st.caption("Manage candidate profiles, research target companies, and track tailored resume generations.")
+st.title("👥 Multi-Candidate AI Resume Workspace")
+st.caption("Manage candidate profiles and tailor resumes with optional web search intelligence.")
 
+# Sidebar Configuration
 with st.sidebar:
     st.header("🗂️ Candidate Workspaces")
     
@@ -41,7 +42,7 @@ with st.sidebar:
         candidate = next(c for c in candidates if c["name"] == selected_candidate_name)
 
     st.markdown("---")
-    st.header("🔑 Provider & API Settings")
+    st.header("🔑 Model & Web Search Settings")
     
     llm_provider = st.selectbox("Select LLM Provider", ["openai", "huggingface", "ollama"])
     
@@ -53,13 +54,22 @@ with st.sidebar:
         openai_key = st.text_input("OpenAI API Key", type="password", value=os.environ.get("OPENAI_API_KEY", ""))
     elif llm_provider == "huggingface":
         hf_key = st.text_input("Hugging Face User Token", type="password", value=os.environ.get("HUGGINGFACE_API_KEY", ""))
-        custom_model = st.text_input("HF Model Repo", value="huggingface/meta-llama/Meta-Llama-3-8B-Instruct")
+        custom_model = st.text_input("HF Model Repo", value="Qwen/Qwen2.5-72B-Instruct")
     elif llm_provider == "ollama":
-        custom_model = st.text_input("Ollama Model Name", value="ollama/llama3")
-        st.info("Ensure Ollama service is running locally at http://localhost:11434")
+        custom_model = st.text_input("Ollama Model Name", value="ollama/llama3.1")
+        st.info("Ensure Ollama service is running at http://localhost:11434")
 
-    tavily_key = st.text_input("Tavily API Key", type="password", value=os.environ.get("TAVILY_API_KEY", ""))
+    st.markdown("---")
+    # Optional Web Search Toggle
+    enable_tavily = st.toggle("🌐 Enable Web Research (Tavily)", value=False)
+    
+    tavily_key = ""
+    if enable_tavily:
+        tavily_key = st.text_input("Tavily API Key", type="password", value=os.environ.get("TAVILY_API_KEY", ""))
+    else:
+        st.caption("ℹ️ Web search disabled. The resume will be tailored using the LLM's internal context only.")
 
+# Main Workspace
 if candidate:
     st.subheader(f"Workspace: {candidate['name']}")
     
@@ -111,14 +121,15 @@ if candidate:
                 job_text = st.text_area("Job Description Text", height=200, placeholder="Paste role requirements...", key=f"text_{candidate['id']}")
                 company_hint = st.text_input("Company Name (Optional)", placeholder="e.g. Stripe", key=f"comp_{candidate['id']}")
 
-            run_btn = st.button("✨ Tailor Resume & Research Company", type="primary", use_container_width=True, key=f"run_{candidate['id']}")
+            run_btn = st.button("✨ Tailor Resume", type="primary", use_container_width=True, key=f"run_{candidate['id']}")
 
         with col2:
             st.markdown("#### 3. Output & Intelligence Report")
             
             if run_btn:
-                if not tavily_key:
-                    st.error("Please supply a Tavily API Key in the sidebar.")
+                # Validations based on toggle state
+                if enable_tavily and not tavily_key:
+                    st.error("Please supply a Tavily API Key or turn OFF 'Enable Web Research'.")
                 elif llm_provider == "openai" and not openai_key:
                     st.error("Please supply an OpenAI API Key.")
                 elif llm_provider == "huggingface" and not hf_key:
@@ -130,7 +141,8 @@ if candidate:
                 elif input_type == "Direct Copy/Paste Job Description" and not job_text.strip():
                     st.error("Please paste the job description text.")
                 else:
-                    os.environ["TAVILY_API_KEY"] = tavily_key
+                    if enable_tavily:
+                        os.environ["TAVILY_API_KEY"] = tavily_key
                     if openai_key:
                         os.environ["OPENAI_API_KEY"] = openai_key
                     if hf_key:
@@ -141,14 +153,15 @@ if candidate:
                             is_url = (input_type == "Job URL")
                             job_input = job_url if is_url else job_text
 
-                            status.write("🌐 Scraping posting & conducting company web research...")
+                            status.write("🌐 Processing job details and analyzing candidate fit...")
                             crew = build_resume_tailor_crew(
                                 resume_text=current_resume_text,
                                 job_input=job_input,
                                 is_url=is_url,
                                 company_name_hint=company_hint,
                                 provider=llm_provider,
-                                custom_llm_model=custom_model
+                                custom_llm_model=custom_model,
+                                use_tavily=enable_tavily  # <--- Pass toggle value
                             )
                             
                             status.write("🎯 Matching skills & drafting ATS resume...")
@@ -160,14 +173,14 @@ if candidate:
                                 job_title="Target Role",
                                 company_name=company_hint or "Target Company",
                                 job_input=job_input,
-                                company_intel="Generated via CrewAI Research Agent",
+                                company_intel="Pure LLM Generation" if not enable_tavily else "Tavily Web Search + LLM",
                                 tailored_markdown=markdown_output
                             )
 
                             docx_path = DocumentExporter.export_to_docx(markdown_output, f"Tailored_Resume_{candidate['name']}.docx")
                             pdf_path = DocumentExporter.export_to_pdf(markdown_output, f"Tailored_Resume_{candidate['name']}.pdf")
 
-                            status.update(label="✅ Success! Adaptation saved to database.", state="complete", expanded=False)
+                            status.update(label="✅ Success! Resume generated and saved to history.", state="complete", expanded=False)
 
                             st.markdown("### Generated ATS Resume")
                             st.markdown(markdown_output)
@@ -186,16 +199,24 @@ if candidate:
                             st.error(str(e))
 
     with tab2:
-        st.markdown(f"#### Past Adaptations & Sessions for {candidate['name']}")
-        sessions = get_candidate_sessions(candidate["id"])
-        
-        if not sessions:
-            st.info("No past job adaptation sessions found for this candidate yet.")
-        else:
-            for session in sessions:
-                with st.expander(f"Session #{session['id']} — {session['company_name']} ({session['created_at']})"):
-                    st.markdown(f"**Target Company:** {session['company_name']}")
-                    st.markdown("---")
-                    st.markdown(session["tailored_resume_markdown"])
+            st.markdown(f"#### Past Adaptations & Sessions for {candidate['name']}")
+            sessions = get_candidate_sessions(candidate["id"])
+            
+            if not sessions:
+                st.info("No past job adaptation sessions found for this candidate yet.")
+            else:
+                for session in sessions:
+                    # Convert sqlite3.Row object to a standard Python dictionary
+                    s = dict(session)
+                    
+                    company_name = s.get("company_name", "Target Company")
+                    created_at = s.get("created_at", "N/A")
+                    intel_method = s.get("company_intelligence", "N/A")
+                    markdown_resume = s.get("tailored_resume_markdown", "")
+                    
+                    with st.expander(f"Session #{s['id']} — {company_name} ({created_at})"):
+                        st.markdown(f"**Research Method:** {intel_method}")
+                        st.markdown("---")
+                        st.markdown(markdown_resume)
 else:
     st.info("👈 Please select an existing candidate profile or create a new candidate session in the sidebar to begin.")

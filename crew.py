@@ -21,7 +21,7 @@ import os
 from crewai import Agent, Crew, Process, Task, LLM
 from tools.web_researcher import CompanyIntelligenceTools
 
-def build_resume_tailor_crew(resume_text: str, job_input: str, is_url: bool, company_name_hint: str = "", provider: str = "openai", custom_llm_model: str = ""):
+def build_resume_tailor_crew(resume_text: str, job_input: str, is_url: bool, company_name_hint: str = "", provider: str = "openai", custom_llm_model: str = "", use_tavily: bool = True):
     
     # Instantiate LLM dynamically inside the function call
     if provider == "huggingface":
@@ -48,12 +48,20 @@ def build_resume_tailor_crew(resume_text: str, job_input: str, is_url: bool, com
             api_key=os.environ.get("OPENAI_API_KEY")
         )
 
+    research_tools = []
+    if is_url:
+        research_tools.append(CompanyIntelligenceTools.scrape_job_url)
+    
+    # Only attach web search tool if Tavily is enabled by user
+    if use_tavily and os.environ.get("TAVILY_API_KEY"):
+        research_tools.append(CompanyIntelligenceTools.search_company_info)
+
     # 1. Company & Job Intelligence Researcher
     researcher = Agent(
         role="Corporate Intelligence Researcher",
         goal="Extract job specifications and research target company financial status, growth trajectory, and current works.",
         backstory="An expert corporate analyst proficient in extracting strategic hiring context and company performance indicators.",
-        tools=[CompanyIntelligenceTools.scrape_job_url, CompanyIntelligenceTools.search_company_info],
+        tools=research_tools,
         llm=llm_engine,
         verbose=True
     )
