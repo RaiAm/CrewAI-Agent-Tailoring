@@ -1,8 +1,10 @@
 import fitz  # PyMuPDF
-import docx
+import importlib
 from PIL import Image
 import pytesseract
 import os
+
+docx = importlib.import_module("docx")
 
 class ResumeParserTool:
     @staticmethod
