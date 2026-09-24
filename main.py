@@ -21,8 +21,8 @@ def run_cli():
     if candidates:
         print("Existing Candidate Profiles:")
         for idx, c in enumerate(candidates):
-            print(f"  [{idx + 1}] {c['name']}")
-        print("  [N] Create New Candidate Profile")
+            print(f"[{idx + 1}] {c['name']}")
+        print("[N] Create New Candidate Profile")
         
         choice = input("\nSelect candidate number or 'N': ").strip()
         if choice.upper() == 'N':
